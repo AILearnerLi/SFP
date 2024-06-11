@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 from torchvision import datasets, transforms
-
+from sklearn.cluster import KMeans
 import torchvision
 import torchvision.transforms as transforms
 import torch.optim as optim
@@ -101,42 +101,7 @@ def test(epoch):
                          % (test_loss/(batch_idx+1), 100.*correct/total, correct, total))
 
 
-def distEclud(x,y):
-    return np.sqrt(np.sum((x-y)**2))  
 
-def randCent(dataSet,k):
-    p,l,m,n = dataSet.shape
-    centroids = np.zeros((p,l,m,n))
-    for i in range(k):
-        index = int(np.random.uniform(0,p)) #
-        centroids[i,:,:] = dataSet[index,:,:]
-    return centroids
-
-
-def KMeans(dataSet,k):
-    m = np.shape(dataSet)[0]  
-    clusterAssment = np.mat(np.zeros((m,2)))
-    clusterChange = True
-    centroids = randCent(dataSet,k)
-    while clusterChange:
-        clusterChange = False
-        for i in range(m):
-            minDist = 100000.0
-            minIndex = -1
-            for j in range(k):
-                distance = distEclud(centroids[j,:,:,:],dataSet[i,:,:,:])
-                if distance < minDist:
-                    minDist = distance
-                    minIndex = j
-            if clusterAssment[i,0] != minIndex:
-                clusterChange = True
-                clusterAssment[i,:] = minIndex,minDist**2
-        for j in range(k):
-            pointsInCluster = dataSet[np.nonzero(clusterAssment[:,0].A == j)[0]]  
-            if len(pointsInCluster) != 0:
-                centroids[j,:,:,:] = np.mean(pointsInCluster,axis=0)   
-    #print("Congratulations,cluster complete!")
-    return centroids,clusterAssment
 
 layer_id = 1
 
@@ -172,9 +137,7 @@ for m in model.modules():
                 sums[i]=np.sum(L1_norm,axis=(0,1,2))
             in_channel=weight_copy.shape[1]
             cn=int((1-prune_prob_stage)*out_channels)
-            centroids,clusterAssments=KMeans(weight_copy,cn)
-            arr1=clusterAssments[:,0]
-            arr1=np.resize(arr1, (out_channels))
+            arr1=KMeans(cn).fit_predict(weight_copy,(out_channels,in_channel*weight_copy.shape[2]*weight_copy.shape[2]))
             mask=torch.zeros(out_channels)
             for j in range(cn):
                 maxs=0
@@ -210,9 +173,7 @@ for m in model.modules():
                 sums[i]=np.sum(L1_norm,axis=(0,1,2))
             in_channel=weight_copy.shape[1]
             cn=int((1-prune_prob_stage)*out_channels)
-            centroids,clusterAssments=KMeans(weight_copy,cn)
-            arr1=clusterAssments[:,0]
-            arr1=np.resize(arr1, (out_channels))
+            arr1=KMeans(cn).fit_predict(weight_copy,(out_channels,in_channel*weight_copy.shape[2]*weight_copy.shape[2]))
             mask=torch.zeros(out_channels)
             for j in range(cn):
                 maxs=0
@@ -367,4 +328,13 @@ def newtrain(epoch):
         correct += predicted.eq(targets).sum().item()
         print(batch_idx, len(trainloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
                      % (train_loss/(batch_idx+1), 100.*correct/total, correct, total))
-newtest(1)
+
+optimizer = optim.SGD(newmodel.parameters(), lr=0.0001,
+                    momentum=0.9, weight_decay=5e-4)
+#lr_scheduler = optim.lr_scheduler.Cosin
+lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, 50)
+for epoch in range(0, 50):
+    criterion = nn.CrossEntropyLoss()
+    newtrain(epoch)
+    lr_scheduler.step()
+    newtest(epoch)
